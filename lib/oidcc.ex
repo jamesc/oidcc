@@ -215,6 +215,52 @@ defmodule Oidcc do
   end
 
   @doc """
+  Revoke the given token
+
+  See `Oidcc.TokenRevocation.revoke/3` for which token of a full
+  `Oidcc.Token` is revoked.
+
+  ## Examples
+
+      iex> {:ok, pid} =
+      ...>   Oidcc.ProviderConfiguration.Worker.start_link(%{
+      ...>     issuer: "https://api.login.yahoo.com"
+      ...>   })
+      ...>
+      ...> Oidcc.revoke_token(
+      ...>   "access_token",
+      ...>   pid,
+      ...>   "client_id",
+      ...>   "client_secret"
+      ...> )
+      ...> # => :ok
+
+  """
+  @doc since: "3.10.0"
+  @spec revoke_token(
+          token :: String.t() | Oidcc.Token.t() | Oidcc.Token.Access.t() | Oidcc.Token.Refresh.t(),
+          provider_configuration_name :: GenServer.name(),
+          client_id :: String.t(),
+          client_secret :: String.t() | :unauthenticated,
+          opts :: :oidcc_token_revocation.opts() | :oidcc_client_context.opts()
+        ) :: :ok | {:error, :oidcc_client_context.error() | :oidcc_token_revocation.error()}
+  def revoke_token(
+        token,
+        provider_configuration_name,
+        client_id,
+        client_secret,
+        opts \\ %{}
+      ),
+      do:
+        :oidcc.revoke_token(
+          Oidcc.TokenRevocation.token_to_record(token),
+          provider_configuration_name,
+          client_id,
+          client_secret,
+          opts
+        )
+
+  @doc """
   Load userinfo for the given token
 
   ## Examples

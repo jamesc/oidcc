@@ -37,6 +37,7 @@ See `m:oidcc_provider_configuration_worker` for details
 -export([refresh_token/5]).
 -export([retrieve_token/5]).
 -export([retrieve_userinfo/5]).
+-export([revoke_token/5]).
 
 -doc """
 Create Auth Redirect URL
@@ -336,6 +337,68 @@ introspect_token(
             ),
         {ok, ClientContext, OtherOpts} = oidcc_profile:apply_profiles(ClientContext0, OtherOpts0),
         oidcc_token_introspection:introspect(Token, ClientContext, OtherOpts)
+    end.
+
+-doc """
+Revoke the given token.
+
+See `oidcc_token_revocation:revoke/3` for which token of a full token
+record is revoked and how unauthenticated clients identify themselves.
+
+## Examples
+
+```erlang
+%% Get Token
+
+ok =
+  oidcc:revoke_token(
+    Token,
+    provider_name,
+    <<"client_id">>,
+    <<"client_secret">>,
+    #{}
+  ).
+```
+""".
+-doc #{since => <<"3.10.0">>}.
+-spec revoke_token(
+    Token,
+    ProviderConfigurationWorkerName,
+    ClientId,
+    ClientSecret,
+    Opts
+) ->
+    ok
+    | {error, oidcc_client_context:error() | oidcc_token_revocation:error()}
+when
+    Token ::
+        oidcc_token:t()
+        | oidcc_token:access()
+        | oidcc_token:refresh()
+        | binary(),
+    ProviderConfigurationWorkerName :: gen_server:server_ref(),
+    ClientId :: binary(),
+    ClientSecret :: binary() | unauthenticated,
+    Opts :: oidcc_token_revocation:opts() | oidcc_client_context:opts().
+revoke_token(
+    Token,
+    ProviderConfigurationWorkerName,
+    ClientId,
+    ClientSecret,
+    Opts
+) ->
+    {ClientContextOpts, OtherOpts0} = extract_client_context_opts(Opts),
+
+    maybe
+        {ok, ClientContext0} ?=
+            oidcc_client_context:from_configuration_worker(
+                ProviderConfigurationWorkerName,
+                ClientId,
+                ClientSecret,
+                ClientContextOpts
+            ),
+        {ok, ClientContext, OtherOpts} = oidcc_profile:apply_profiles(ClientContext0, OtherOpts0),
+        oidcc_token_revocation:revoke(Token, ClientContext, OtherOpts)
     end.
 
 -doc """

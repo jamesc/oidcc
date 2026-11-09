@@ -11,9 +11,16 @@
 -export([bearer_auth_header/1]).
 -export([headers_to_cache_deadline/2]).
 -export([request/4]).
+-export([request/5]).
 
 -export_type([
-    http_header/0, error/0, httpc_error/0, query_params/0, telemetry_opts/0, request_opts/0
+    http_header/0,
+    error/0,
+    httpc_error/0,
+    query_params/0,
+    telemetry_opts/0,
+    request_opts/0,
+    response_opts/0
 ]).
 
 -doc "See `uri_string:compose_query/1`.".
@@ -54,6 +61,19 @@ See `httpc:request/5`.
     http_adapter => oidcc_http_adapter:config()
 }.
 
+-doc """
+How a successful (`200` / `201`) response body is interpreted.
+
+* `success_body` - `typed` (default) requires a JSON or JWT content type and
+  fails with `invalid_content_type` otherwise. `any` accepts any body and
+  content type and returns it as `{raw, Body}`, for endpoints whose success
+  response carries no meaningful body, such as token revocation (RFC 7009).
+""".
+-doc #{since => <<"3.10.0">>}.
+-type response_opts() :: #{
+    success_body => typed | any
+}.
+
 -doc #{since => <<"3.0.0">>}.
 -type telemetry_opts() :: #{
     topic := [atom()],
@@ -86,6 +106,20 @@ when
     TelemetryOpts :: telemetry_opts(),
     RequestOpts :: request_opts().
 request(Method, Request, TelemetryOpts, RequestOpts) ->
+    request(Method, Request, TelemetryOpts, RequestOpts, #{}).
+
+-doc false.
+-spec request(Method, Request, TelemetryOpts, RequestOpts, ResponseOpts) ->
+    {ok, {{json, term()} | {jwt, binary()} | {raw, binary()}, [oidcc_http_adapter:header()]}}
+    | {error, error()}
+when
+    Method :: oidcc_http_adapter:method(),
+    Request :: oidcc_http_adapter:request(),
+    TelemetryOpts :: telemetry_opts(),
+    RequestOpts :: request_opts(),
+    ResponseOpts :: response_opts().
+request(Method, Request, TelemetryOpts, RequestOpts, ResponseOpts) ->
+    SuccessBody = maps:get(success_body, ResponseOpts, typed),
     TelemetryTopic = maps:get(topic, TelemetryOpts),
     TelemetryExtraMeta = maps:get(extra_meta, TelemetryOpts, #{}),
     Timeout = maps:get(timeout, RequestOpts, timer:minutes(1)),
@@ -121,7 +155,7 @@ request(Method, Request, TelemetryOpts, RequestOpts) ->
                             AdapterConfig
                         ]
                     ),
-                {ok, BodyAndFormat} ?= extract_successful_response(Response),
+                {ok, BodyAndFormat} ?= extract_successful_response(Response, SuccessBody),
                 {{ok, {BodyAndFormat, Headers}}, TelemetryExtraMeta}
             else
                 {error, Reason} ->
@@ -130,15 +164,24 @@ request(Method, Request, TelemetryOpts, RequestOpts) ->
         end
     ).
 
--spec extract_successful_response({StatusLine, [HttpHeader], HttpBodyResult}) ->
-    {ok, {json, term()} | {jwt, binary()}} | {error, error()}
+-spec extract_successful_response({StatusLine, [HttpHeader], HttpBodyResult}, SuccessBody) ->
+    {ok, {json, term()} | {jwt, binary()} | {raw, binary()}} | {error, error()}
 when
+    SuccessBody :: typed | any,
     StatusLine :: {HttpVersion, StatusCode, string()},
     HttpVersion :: string(),
     StatusCode :: non_neg_integer(),
     HttpHeader :: oidcc_http_adapter:header(),
     HttpBodyResult :: binary().
-extract_successful_response({{_HttpVersion, Status, _HttpStatusName}, Headers, HttpBodyResult}) when
+extract_successful_response(
+    {{_HttpVersion, Status, _HttpStatusName}, _Headers, HttpBodyResult}, any
+) when
+    Status == 200 orelse Status == 201
+->
+    {ok, {raw, HttpBodyResult}};
+extract_successful_response(
+    {{_HttpVersion, Status, _HttpStatusName}, Headers, HttpBodyResult}, _SuccessBody
+) when
     Status == 200 orelse Status == 201
 ->
     case fetch_content_type(Headers) of
@@ -154,7 +197,9 @@ extract_successful_response({{_HttpVersion, Status, _HttpStatusName}, Headers, H
         unknown ->
             {error, invalid_content_type}
     end;
-extract_successful_response({{_HttpVersion, StatusCode, _HttpStatusName}, Headers, HttpBodyResult}) ->
+extract_successful_response(
+    {{_HttpVersion, StatusCode, _HttpStatusName}, Headers, HttpBodyResult}, _SuccessBody
+) ->
     Body =
         case fetch_content_type(Headers) of
             json ->
