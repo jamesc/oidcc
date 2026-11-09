@@ -117,6 +117,8 @@
         mtls_endpoint_aliases = #{} :: #{binary() => uri_string:uri_string()},
         %% RFC 8705 OAuth 2.0 Mutual-TLS Client Authentication and Certificate-Bound Access Tokens
         tls_client_certificate_bound_access_tokens = false :: boolean(),
+        %% RFC 8628 OAuth 2.0 Device Authorization Grant
+        device_authorization_endpoint = undefined :: uri_string:uri_string() | undefined,
         %% Unknown Fields
         extra_fields = #{} :: #{binary() => term()}
     }

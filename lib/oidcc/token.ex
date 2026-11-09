@@ -496,6 +496,49 @@ defmodule Oidcc.Token do
       |> :oidcc_token.client_credentials(opts)
       |> normalize_token_response()
 
+  @doc """
+  Poll for the token of a device authorization
+
+  Returns `{:error, :authorization_pending}` or `{:error, :slow_down}` while
+  the user has not finished; poll again after `interval` seconds (plus 5 more
+  on `:slow_down`). `:access_denied` and `:expired_token` are terminal.
+
+  For a high level interface using `Oidcc.ProviderConfiguration.Worker`
+  see `Oidcc.retrieve_device_token/5`.
+
+  ## Examples
+
+      iex> {:ok, pid} =
+      ...>   Oidcc.ProviderConfiguration.Worker.start_link(%{
+      ...>     issuer: "https://accounts.google.com"
+      ...>   })
+      ...>
+      ...> {:ok, client_context} =
+      ...>   Oidcc.ClientContext.from_configuration_worker(
+      ...>     pid,
+      ...>     "client_id",
+      ...>     :unauthenticated
+      ...>   )
+      ...>
+      ...> # device_code from Oidcc.DeviceAuthorization.authorize/2
+      ...> Oidcc.Token.retrieve_device_token("device_code", client_context)
+      ...> # => {:error, :authorization_pending}
+
+  """
+  @doc since: "3.10.0"
+  @spec retrieve_device_token(
+          authorization :: Oidcc.DeviceAuthorization.t() | String.t(),
+          client_context :: ClientContext.t(),
+          opts :: :oidcc_token.device_token_opts()
+        ) ::
+          {:ok, t()} | {:error, :oidcc_token.device_token_error() | :oidcc_token.error()}
+  def retrieve_device_token(authorization, client_context, opts \\ %{}),
+    do:
+      authorization
+      |> Oidcc.DeviceAuthorization.authorization_to_record()
+      |> :oidcc_token.retrieve_device_token(ClientContext.struct_to_record(client_context), opts)
+      |> normalize_token_response()
+
   @doc false
   @spec normalize_token_response(
           response :: {:ok, :oidcc_token.t()} | {:error, :oidcc_token.error()}

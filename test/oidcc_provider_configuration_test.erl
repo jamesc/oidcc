@@ -107,11 +107,9 @@ decode_google_test() ->
                 undefined,
             code_challenge_methods_supported =
                 [<<"plain">>, <<"S256">>],
-            extra_fields =
-                #{
-                    <<"device_authorization_endpoint">> :=
-                        <<"https://oauth2.googleapis.com/device/code">>
-                }
+            device_authorization_endpoint =
+                <<"https://oauth2.googleapis.com/device/code">>,
+            extra_fields = #{}
         }},
         oidcc_provider_configuration:decode_configuration(json:decode(Configuration))
     ).

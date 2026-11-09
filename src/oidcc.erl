@@ -31,11 +31,13 @@ See `m:oidcc_provider_configuration_worker` for details
 
 -export([client_credentials_token/4]).
 -export([create_redirect_url/4]).
+-export([device_authorization/4]).
 -export([initiate_logout_url/4]).
 -export([introspect_token/5]).
 -export([jwt_profile_token/6]).
 -export([refresh_token/5]).
 -export([retrieve_token/5]).
+-export([retrieve_device_token/5]).
 -export([retrieve_userinfo/5]).
 
 -doc """
@@ -336,6 +338,112 @@ introspect_token(
             ),
         {ok, ClientContext, OtherOpts} = oidcc_profile:apply_profiles(ClientContext0, OtherOpts0),
         oidcc_token_introspection:introspect(Token, ClientContext, OtherOpts)
+    end.
+
+-doc """
+Start a device authorization (RFC 8628).
+
+See `oidcc_device_authorization:authorize/2`.
+
+## Examples
+
+```erlang
+{ok, #oidcc_device_authorization{user_code = UserCode,
+                                 verification_uri = Uri} = Authorization} =
+  oidcc:device_authorization(
+    provider_name,
+    <<"client_id">>,
+    unauthenticated,
+    #{scope => [<<"openid">>]}
+  ).
+```
+""".
+-doc #{since => <<"3.10.0">>}.
+-spec device_authorization(
+    ProviderConfigurationWorkerName,
+    ClientId,
+    ClientSecret,
+    Opts
+) ->
+    {ok, oidcc_device_authorization:t()}
+    | {error, oidcc_client_context:error() | oidcc_device_authorization:error()}
+when
+    ProviderConfigurationWorkerName :: gen_server:server_ref(),
+    ClientId :: binary(),
+    ClientSecret :: binary() | unauthenticated,
+    Opts :: oidcc_device_authorization:opts() | oidcc_client_context:opts().
+device_authorization(ProviderConfigurationWorkerName, ClientId, ClientSecret, Opts) ->
+    {ClientContextOpts, OtherOpts0} = extract_client_context_opts(Opts),
+
+    maybe
+        {ok, ClientContext0} ?=
+            oidcc_client_context:from_configuration_worker(
+                ProviderConfigurationWorkerName,
+                ClientId,
+                ClientSecret,
+                ClientContextOpts
+            ),
+        {ok, ClientContext, OtherOpts} = oidcc_profile:apply_profiles(ClientContext0, OtherOpts0),
+        oidcc_device_authorization:authorize(ClientContext, OtherOpts)
+    end.
+
+-doc """
+Poll for the token of a device authorization (RFC 8628).
+
+See `oidcc_token:retrieve_device_token/3`.
+
+## Examples
+
+```erlang
+{ok, Authorization} = oidcc:device_authorization(provider_name, ClientId, unauthenticated, #{}),
+
+%% after Authorization#oidcc_device_authorization.interval seconds
+{error, authorization_pending} =
+  oidcc:retrieve_device_token(
+    Authorization,
+    provider_name,
+    <<"client_id">>,
+    unauthenticated,
+    #{}
+  ).
+```
+""".
+-doc #{since => <<"3.10.0">>}.
+-spec retrieve_device_token(
+    DeviceAuthorization,
+    ProviderConfigurationWorkerName,
+    ClientId,
+    ClientSecret,
+    Opts
+) ->
+    {ok, oidcc_token:t()}
+    | {error, oidcc_client_context:error() | oidcc_token:device_token_error() | oidcc_token:error()}
+when
+    DeviceAuthorization :: oidcc_device_authorization:t() | binary(),
+    ProviderConfigurationWorkerName :: gen_server:server_ref(),
+    ClientId :: binary(),
+    ClientSecret :: binary() | unauthenticated,
+    Opts :: oidcc_token:device_token_opts() | oidcc_client_context:opts().
+retrieve_device_token(
+    DeviceAuthorization, ProviderConfigurationWorkerName, ClientId, ClientSecret, Opts
+) ->
+    {ClientContextOpts, OtherOpts} = extract_client_context_opts(Opts),
+
+    RefreshJwksFun = oidcc_jwt_util:refresh_jwks_fun(ProviderConfigurationWorkerName),
+    OptsWithRefresh0 = maps_put_new(refresh_jwks, RefreshJwksFun, OtherOpts),
+
+    maybe
+        {ok, ClientContext0} ?=
+            oidcc_client_context:from_configuration_worker(
+                ProviderConfigurationWorkerName,
+                ClientId,
+                ClientSecret,
+                ClientContextOpts
+            ),
+        {ok, ClientContext, OptsWithRefresh} = oidcc_profile:apply_profiles(
+            ClientContext0, OptsWithRefresh0
+        ),
+        oidcc_token:retrieve_device_token(DeviceAuthorization, ClientContext, OptsWithRefresh)
     end.
 
 -doc """

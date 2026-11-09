@@ -124,6 +124,7 @@ defmodule Oidcc.ProviderConfiguration do
           require_signed_request_object: boolean(),
           mtls_endpoint_aliases: %{binary() => :uri_string.uri_string()},
           tls_client_certificate_bound_access_tokens: boolean(),
+          device_authorization_endpoint: :uri_string.uri_string() | :undefined,
           extra_fields: %{String.t() => term()}
         }
 

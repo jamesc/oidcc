@@ -215,6 +215,91 @@ defmodule Oidcc do
   end
 
   @doc """
+  Start a device authorization (RFC 8628)
+
+  See `Oidcc.DeviceAuthorization.authorize/2`.
+
+  ## Examples
+
+      iex> {:ok, pid} =
+      ...>   Oidcc.ProviderConfiguration.Worker.start_link(%{
+      ...>     issuer: "https://accounts.google.com"
+      ...>   })
+      ...>
+      ...> Oidcc.device_authorization(pid, "client_id", :unauthenticated, %{scope: ["openid"]})
+      ...> # => {:ok, %Oidcc.DeviceAuthorization{}}
+
+  """
+  @doc since: "3.10.0"
+  @spec device_authorization(
+          provider_configuration_name :: GenServer.name(),
+          client_id :: String.t(),
+          client_secret :: String.t() | :unauthenticated,
+          opts :: :oidcc_device_authorization.opts() | :oidcc_client_context.opts()
+        ) ::
+          {:ok, Oidcc.DeviceAuthorization.t()}
+          | {:error, :oidcc_client_context.error() | :oidcc_device_authorization.error()}
+  def device_authorization(provider_configuration_name, client_id, client_secret, opts \\ %{}) do
+    with {:ok, authorization} <-
+           :oidcc.device_authorization(
+             provider_configuration_name,
+             client_id,
+             client_secret,
+             opts
+           ) do
+      {:ok, Oidcc.DeviceAuthorization.record_to_struct(authorization)}
+    end
+  end
+
+  @doc """
+  Poll for the token of a device authorization (RFC 8628)
+
+  See `Oidcc.Token.retrieve_device_token/3`.
+
+  ## Examples
+
+      iex> {:ok, pid} =
+      ...>   Oidcc.ProviderConfiguration.Worker.start_link(%{
+      ...>     issuer: "https://accounts.google.com"
+      ...>   })
+      ...>
+      ...> # device_code from Oidcc.device_authorization/4
+      ...> Oidcc.retrieve_device_token("device_code", pid, "client_id", :unauthenticated)
+      ...> # => {:error, :authorization_pending}
+
+  """
+  @doc since: "3.10.0"
+  @spec retrieve_device_token(
+          authorization :: Oidcc.DeviceAuthorization.t() | String.t(),
+          provider_configuration_name :: GenServer.name(),
+          client_id :: String.t(),
+          client_secret :: String.t() | :unauthenticated,
+          opts :: :oidcc_token.device_token_opts() | :oidcc_client_context.opts()
+        ) ::
+          {:ok, Oidcc.Token.t()}
+          | {:error,
+             :oidcc_client_context.error()
+             | :oidcc_token.device_token_error()
+             | :oidcc_token.error()}
+  def retrieve_device_token(
+        authorization,
+        provider_configuration_name,
+        client_id,
+        client_secret,
+        opts \\ %{}
+      ),
+      do:
+        authorization
+        |> Oidcc.DeviceAuthorization.authorization_to_record()
+        |> :oidcc.retrieve_device_token(
+          provider_configuration_name,
+          client_id,
+          client_secret,
+          opts
+        )
+        |> Oidcc.Token.normalize_token_response()
+
+  @doc """
   Load userinfo for the given token
 
   ## Examples

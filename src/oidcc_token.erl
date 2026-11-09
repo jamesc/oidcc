@@ -23,6 +23,7 @@ See [`Oidcc.Token`](`m:'Elixir.Oidcc.Token'`).
 -moduledoc #{since => <<"3.0.0">>}.
 
 -include("oidcc_client_context.hrl").
+-include("oidcc_device_authorization.hrl").
 -include("oidcc_provider_configuration.hrl").
 -include("oidcc_token.hrl").
 
@@ -32,6 +33,7 @@ See [`Oidcc.Token`](`m:'Elixir.Oidcc.Token'`).
 -include_lib("jose/include/jose_jwt.hrl").
 
 -export([client_credentials/2]).
+-export([retrieve_device_token/3]).
 -export([jwt_profile/4]).
 -export([refresh/3]).
 -export([retrieve/3]).
@@ -45,6 +47,8 @@ See [`Oidcc.Token`](`m:'Elixir.Oidcc.Token'`).
 -export_type([access/0]).
 -export_type([authorization_headers_opts/0]).
 -export_type([client_credentials_opts/0]).
+-export_type([device_token_error/0]).
+-export_type([device_token_opts/0]).
 -export_type([error/0]).
 -export_type([id/0]).
 -export_type([jwt_profile_opts/0]).
@@ -228,6 +232,41 @@ See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3.
     body_extension => oidcc_http_util:query_params()
 }.
 
+-doc """
+Options for `retrieve_device_token/3`.
+
+The ID token, if the response carries one, is validated like any other;
+there is no nonce in the device flow.
+""".
+-doc #{since => <<"3.10.0">>}.
+-type device_token_opts() :: #{
+    preferred_auth_methods => [oidcc_auth_util:auth_method(), ...],
+    refresh_jwks => oidcc_jwt_util:refresh_jwks_for_unknown_kid_fun(),
+    request_opts => oidcc_http_util:request_opts(),
+    body_extension => oidcc_http_util:query_params(),
+    trusted_audiences => [binary()] | any,
+    validate_azp => binary() | [binary()] | client_id | any
+}.
+
+-doc """
+Device Access Token Response errors (RFC 8628 Section 3.5), decoded from the
+token endpoint's `400` response.
+
+* `authorization_pending` - the user has not finished yet; poll again after
+  `interval` seconds.
+* `slow_down` - poll again, and increase the interval by 5 seconds for this
+  and all later requests.
+* `access_denied` - the user declined. Terminal.
+* `expired_token` - the `device_code` expired. Terminal; start a new
+  authorization.
+""".
+-doc #{since => <<"3.10.0">>}.
+-type device_token_error() ::
+    authorization_pending
+    | slow_down
+    | access_denied
+    | expired_token.
+
 -doc #{since => <<"3.0.0">>}.
 -type authorization_headers_opts() :: #{
     dpop_nonce => binary()
@@ -353,6 +392,27 @@ return that carries only the keys. `oidcc` does not interpret it.
 -telemetry_event(#{
     event => [oidcc, client_credentials, exception],
     description => <<"Emitted at the end of exchanging a client credentials token">>,
+    measurements => <<"#{duration => integer(), monotonic_time => integer()}">>,
+    metadata => <<"#{issuer => uri_string:uri_string(), client_id => binary()}">>
+}).
+
+-telemetry_event(#{
+    event => [oidcc, device_token, start],
+    description => <<"Emitted at the start of polling for a device access token">>,
+    measurements => <<"#{system_time => non_neg_integer()}">>,
+    metadata => <<"#{issuer => uri_string:uri_string(), client_id => binary()}">>
+}).
+
+-telemetry_event(#{
+    event => [oidcc, device_token, stop],
+    description => <<"Emitted at the end of polling for a device access token">>,
+    measurements => <<"#{duration => integer(), monotonic_time => integer()}">>,
+    metadata => <<"#{issuer => uri_string:uri_string(), client_id => binary()}">>
+}).
+
+-telemetry_event(#{
+    event => [oidcc, device_token, exception],
+    description => <<"Emitted at the end of polling for a device access token">>,
     measurements => <<"#{duration => integer(), monotonic_time => integer()}">>,
     metadata => <<"#{issuer => uri_string:uri_string(), client_id => binary()}">>
 }).
@@ -776,6 +836,80 @@ client_credentials(ClientContext, Opts) ->
             end;
         false ->
             {error, {grant_type_not_supported, client_credentials}}
+    end.
+
+-doc """
+Poll for the token of a device authorization (RFC 8628 Section 3.4).
+
+Call it every `interval` seconds of the `t:oidcc_device_authorization:t/0`
+returned by `oidcc_device_authorization:authorize/2` until it returns
+`{ok, Token}` or a terminal error. `{error, authorization_pending}` and
+`{error, slow_down}` mean poll again; on `slow_down` the interval grows by 5
+seconds (Section 3.5). Pacing is the caller's responsibility.
+
+A client without a secret (an unauthenticated client context) identifies
+itself with `client_id` only (`none`).
+
+## Examples
+
+```erlang
+{ok, Authorization} =
+  oidcc_device_authorization:authorize(ClientContext, #{scope => [<<"openid">>]}),
+
+case oidcc_token:retrieve_device_token(Authorization, ClientContext, #{}) of
+    {ok, #oidcc_token{} = Token} -> Token;
+    {error, authorization_pending} -> wait_and_retry;
+    {error, slow_down} -> wait_longer_and_retry;
+    {error, Reason} -> give_up
+end.
+```
+""".
+-doc #{since => <<"3.10.0">>}.
+-spec retrieve_device_token(DeviceAuthorization, ClientContext, Opts) ->
+    {ok, t()} | {error, device_token_error() | error()}
+when
+    DeviceAuthorization :: oidcc_device_authorization:t() | binary(),
+    ClientContext :: oidcc_client_context:t(),
+    Opts :: device_token_opts().
+retrieve_device_token(
+    #oidcc_device_authorization{device_code = DeviceCode}, ClientContext, Opts
+) ->
+    retrieve_device_token(DeviceCode, ClientContext, Opts);
+retrieve_device_token(DeviceCode, ClientContext, Opts) when is_binary(DeviceCode) ->
+    #oidcc_client_context{
+        provider_configuration = Configuration,
+        client_id = ClientId,
+        client_secret = ClientSecret
+    } = ClientContext,
+    #oidcc_provider_configuration{issuer = Issuer} = Configuration,
+
+    QueryString = [
+        {<<"grant_type">>, <<"urn:ietf:params:oauth:grant-type:device_code">>},
+        {<<"device_code">>, DeviceCode}
+    ],
+    TelemetryOpts = #{
+        topic => [oidcc, device_token],
+        extra_meta => #{issuer => Issuer, client_id => ClientId}
+    },
+    AuthenticateClient = ClientSecret =/= unauthenticated,
+
+    maybe
+        {ok, Token} ?=
+            retrieve_a_token(QueryString, ClientContext, Opts, TelemetryOpts, AuthenticateClient),
+        {ok, TokenRecord, _Info} ?=
+            extract_response(Token, ClientContext, maps:put(nonce, any, Opts)),
+        {ok, TokenRecord}
+    else
+        {error, {http_error, 400, #{<<"error">> := <<"authorization_pending">>}}} ->
+            {error, authorization_pending};
+        {error, {http_error, 400, #{<<"error">> := <<"slow_down">>}}} ->
+            {error, slow_down};
+        {error, {http_error, 400, #{<<"error">> := <<"access_denied">>}}} ->
+            {error, access_denied};
+        {error, {http_error, 400, #{<<"error">> := <<"expired_token">>}}} ->
+            {error, expired_token};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 -spec extract_response(TokenResponseBody, ClientContext, Opts) ->

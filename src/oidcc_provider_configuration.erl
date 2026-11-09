@@ -152,6 +152,7 @@ All unrecognized fields are stored in `extra_fields`.
         dpop_signing_alg_values_supported :: [binary()] | undefined,
         require_signed_request_object :: boolean(),
         mtls_endpoint_aliases :: #{binary() => uri_string:uri_string()},
+        device_authorization_endpoint :: uri_string:uri_string() | undefined,
         extra_fields :: #{binary() => term()}
     }.
 
@@ -512,7 +513,8 @@ decode_configuration(Configuration0, Opts) ->
                 dpop_signing_alg_values_supported := DpopSigningAlgValuesSupported,
                 require_signed_request_object := RequireSignedRequestObject,
                 mtls_endpoint_aliases := MtlsEndpointAliases,
-                tls_client_certificate_bound_access_tokens := TlsClientCertificateBoundAccessTokens
+                tls_client_certificate_bound_access_tokens := TlsClientCertificateBoundAccessTokens,
+                device_authorization_endpoint := DeviceAuthorizationEndpoint
             },
             ExtraFields
         }} ?=
@@ -630,7 +632,9 @@ decode_configuration(Configuration0, Opts) ->
                             false -> fun oidcc_decode_util:parse_setting_uri_https_map/2
                         end},
                     {optional, tls_client_certificate_bound_access_tokens, false,
-                        fun oidcc_decode_util:parse_setting_boolean/2}
+                        fun oidcc_decode_util:parse_setting_boolean/2},
+                    {optional, device_authorization_endpoint, undefined,
+                        fun oidcc_decode_util:parse_setting_uri/2}
                 ],
                 #{}
             ),
@@ -711,6 +715,7 @@ decode_configuration(Configuration0, Opts) ->
             require_signed_request_object = RequireSignedRequestObject,
             mtls_endpoint_aliases = MtlsEndpointAliases,
             tls_client_certificate_bound_access_tokens = TlsClientCertificateBoundAccessTokens,
+            device_authorization_endpoint = DeviceAuthorizationEndpoint,
             extra_fields = ExtraFields
         }}
     end.

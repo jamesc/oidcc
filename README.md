@@ -131,6 +131,7 @@ A security audit was performed by [SAFE-Erlang-Elixir](https://github.com/SAFE-E
   * [JWT Response](https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse)
   * [Aggregated and Distributed Claims](https://openid.net/specs/openid-connect-core-1_0.html#AggregatedDistributedClaims)
 * [Token Introspection](https://datatracker.ietf.org/doc/html/rfc7662)
+* [Device Authorization Grant](https://datatracker.ietf.org/doc/html/rfc8628)
 * Logout
   * [RP-Initiated](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
 * [JWT Secured Authorization Response Mode for OAuth 2.0 (JARM)](https://openid.net/specs/oauth-v2-jarm-final.html)
